@@ -7,11 +7,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var filetypeFind = ".pdf"
 var distFolder = "copy"
 var logFile = "copy.log"
+
+var ignoredDirs = map[string]bool{
+	"C:\\ProgramData":         true,
+	"C:\\Windows":             true,
+	"C:\\Program Files":       true,
+	"C:\\Program Files (x86)": true,
+}
 
 // Функция для проверки, нужно ли пропустить сканирование текущего диска
 func shouldSkipDrive(drive string) bool {
@@ -20,16 +28,29 @@ func shouldSkipDrive(drive string) bool {
 	return strings.EqualFold(currentVolume, drive)
 }
 
+// Функция для проверки, нужно ли пропустить директорию
+func shouldSkipDir(dir string) bool {
+	_, skip := ignoredDirs[dir]
+	return skip
+}
+
 // Функция для сканирования и копирования файлов по заданному пути
 func findAndCopy(folderToSearch, fileExt, whereCopy string) error {
 	err := filepath.WalkDir(folderToSearch, func(s string, d os.DirEntry, err error) error {
 		if err != nil {
 			if os.IsPermission(err) {
 				fmt.Printf("Skipping directory due to permission error: %s\n", s)
+				time.Sleep(8 * time.Second)
 				return nil
 			}
 			return err
 		}
+
+		if shouldSkipDir(s) {
+			fmt.Printf("Skipping directory: %s\n", s)
+			return filepath.SkipDir
+		}
+
 		if !d.IsDir() && filepath.Ext(d.Name()) == fileExt {
 			err := copyFile(s, filepath.Join(whereCopy, distFolder, d.Name()))
 			if err != nil {
