@@ -44,7 +44,7 @@ func findAndCopy(folderToSearch, fileExt, whereCopy string) error {
 			return err
 		}
 
-		if shouldSkipDir(s) {
+		if d.IsDir() && shouldSkipDir(s) {
 			fmt.Printf("Skipping directory: %s\n", s)
 			return filepath.SkipDir
 		}
@@ -116,7 +116,7 @@ func main() {
 	}
 
 	for _, drive := range drives {
-		searchPath := filepath.Join(drive, "")
+		searchPath := drive
 		log.Printf("Scanning %s for %s files...\n", searchPath, filetypeFind)
 		err := findAndCopy(searchPath, filetypeFind, whereCopy)
 		if err != nil {
