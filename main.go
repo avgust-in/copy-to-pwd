@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -9,9 +10,9 @@ import (
 	"strings"
 )
 
-var filetypeFind = ".pdf"
 var distFolder = "copy"
 var logFile = "copy.log"
+var configFile = "config.txt"
 
 var ignoredDirs = map[string]bool{
 	"C:\\ProgramData":         true,
@@ -34,7 +35,7 @@ func shouldSkipDir(dir string) bool {
 }
 
 // Функция для сканирования и копирования файлов по заданному пути
-func findAndCopy(folderToSearch, fileExt, whereCopy string) error {
+func findAndCopy(folderToSearch string, fileExts []string, whereCopy string) error {
 	err := filepath.WalkDir(folderToSearch, func(s string, d os.DirEntry, err error) error {
 		if err != nil {
 			if os.IsPermission(err) {
@@ -49,12 +50,17 @@ func findAndCopy(folderToSearch, fileExt, whereCopy string) error {
 			return filepath.SkipDir
 		}
 
-		if !d.IsDir() && filepath.Ext(d.Name()) == fileExt {
-			err := copyFile(s, filepath.Join(whereCopy, distFolder, d.Name()))
-			if err != nil {
-				log.Printf("Error copying file %s: %v\n", s, err)
-			} else {
-				log.Printf("Copied: %s\n", s)
+		if !d.IsDir() {
+			for _, ext := range fileExts {
+				if filepath.Ext(d.Name()) == ext {
+					err := copyFile(s, filepath.Join(whereCopy, distFolder, d.Name()))
+					if err != nil {
+						log.Printf("Error copying file %s: %v\n", s, err)
+					} else {
+						log.Printf("Copied: %s\n", s)
+					}
+					break
+				}
 			}
 		}
 		return nil
@@ -88,6 +94,33 @@ func copyFile(src, dst string) error {
 	return err
 }
 
+// Функция для чтения конфигурационного файла
+func readConfigFile(filePath string) ([]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var extensions []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		ext := strings.TrimSpace(scanner.Text())
+		if ext != "" {
+			extensions = append(extensions, ext)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(extensions) == 0 {
+		return nil, fmt.Errorf("config file is empty or contains invalid data")
+	}
+
+	return extensions, nil
+}
+
 func main() {
 	logf, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -95,6 +128,19 @@ func main() {
 	}
 	defer logf.Close()
 	log.SetOutput(logf)
+
+	// Чтение конфигурационного файла для получения расширений файлов
+	whereCopy, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("Failed to get working directory: %v", err)
+	}
+
+	configFilePath := filepath.Join(whereCopy, configFile)
+	filetypeFind, err := readConfigFile(configFilePath)
+	if err != nil {
+		log.Fatalf("Failed to read config file: %v", err)
+	}
+	log.Printf("Looking for files with extensions: %v\n", filetypeFind)
 
 	// Получаем список всех дисков, кроме текущего
 	var drives []string
@@ -105,11 +151,6 @@ func main() {
 		}
 	}
 
-	whereCopy, err := os.Getwd()
-	if err != nil {
-		log.Fatalf("Failed to get working directory: %v", err)
-	}
-
 	err = os.MkdirAll(filepath.Join(whereCopy, distFolder), os.ModePerm)
 	if err != nil {
 		log.Fatalf("Failed to create destination directory: %v", err)
@@ -117,7 +158,7 @@ func main() {
 
 	for _, drive := range drives {
 		searchPath := drive
-		log.Printf("Scanning %s for %s files...\n", searchPath, filetypeFind)
+		log.Printf("Scanning %s for files with extensions: %v...\n", searchPath, filetypeFind)
 		err := findAndCopy(searchPath, filetypeFind, whereCopy)
 		if err != nil {
 			log.Printf("Error scanning and copying files: %v\n", err)
